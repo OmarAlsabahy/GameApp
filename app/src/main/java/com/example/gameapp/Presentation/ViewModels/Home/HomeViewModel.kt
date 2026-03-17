@@ -14,6 +14,7 @@ import com.example.gameapp.Domain.Repositories.IHomeRepo
 import com.google.gson.Gson
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -44,7 +45,18 @@ class HomeViewModel @Inject constructor(
     
     private val pageNumber = 1
 
+    var trendingJob: Job? = null
+    var lastGamesJob: Job? = null
+    var searchTrendingJob: Job? = null
+    var searchLastJob: Job? = null
+    var genreJob: Job? = null
+
     fun loadPage(){
+        trendingJob?.cancel()
+        lastGamesJob?.cancel()
+        searchTrendingJob?.cancel()
+        searchLastJob?.cancel()
+        genreJob?.cancel()
         getGenres()
         getTrendingGames(pageNumber)
         getLastGames(pageNumber)
@@ -52,7 +64,7 @@ class HomeViewModel @Inject constructor(
 
     private fun getGenres() {
         _genresState.value = NetworkResult.Loading()
-        viewModelScope.launch(Dispatchers.IO) {
+        genreJob=viewModelScope.launch(Dispatchers.IO) {
             try {
                 val result = repository.getGenres()
                 when(result){
@@ -78,6 +90,12 @@ class HomeViewModel @Inject constructor(
                     }
                 }
             } catch (e: Exception) {
+                genreJob = viewModelScope.launch(Dispatchers.IO){
+                    val result = repository.getCachedGenres()
+                    result.collect { genres->
+                        _cachedGenresState.value = genres
+                    }
+                }
                 _genresState.value = NetworkResult.Error(e.message.toString())
             }
         }
@@ -91,7 +109,7 @@ class HomeViewModel @Inject constructor(
 
     private fun getTrendingGames(pageNumber: Int) {
         _trendingGamesState.value = NetworkResult.Loading()
-        viewModelScope.launch(Dispatchers.IO){
+        trendingJob = viewModelScope.launch(Dispatchers.IO){
             try {
                 val result = repository.getTrendingGames(pageNumber)
                 when(result){
@@ -116,6 +134,13 @@ class HomeViewModel @Inject constructor(
                     }
                 }
             } catch (e: Exception){
+                // If exception occurs (likely network), try to get from cache
+                trendingJob=viewModelScope.launch(Dispatchers.IO){
+                    val result = repository.getCachedTrendingGames()
+                    result.collect { games->
+                        _cachedTrendingGamesState.value = games
+                    }
+                }
                 _trendingGamesState.value = NetworkResult.Error(e.message.toString())
             }
         }
@@ -143,7 +168,7 @@ class HomeViewModel @Inject constructor(
 
     fun getLastGames(pageNumber: Int) {
         _lastGamesState.value = NetworkResult.Loading()
-        viewModelScope.launch(Dispatchers.IO){
+        lastGamesJob = viewModelScope.launch(Dispatchers.IO){
             try{
                 val result = repository.getLastGames(pageNumber)
                 when(result){
@@ -168,6 +193,13 @@ class HomeViewModel @Inject constructor(
                     }
                 }
             } catch (e: Exception){
+                // If exception occurs (likely network), try to get from cache
+                lastGamesJob = viewModelScope.launch(Dispatchers.IO){
+                    val result = repository.getCachedLastGames()
+                    result.collect { games->
+                        _cachedLastGamesState.value = games
+                    }
+                }
                 _lastGamesState.value = NetworkResult.Error(e.message.toString())
             }
         }
@@ -220,6 +252,15 @@ class HomeViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        trendingJob?.cancel()
+        lastGamesJob?.cancel()
+        searchTrendingJob?.cancel()
+        searchLastJob?.cancel()
+        genreJob?.cancel()
     }
 
     fun loadLastGamesNextPage(){
@@ -284,7 +325,7 @@ class HomeViewModel @Inject constructor(
     }
 
     private fun searchTrending(name:String){
-        viewModelScope.launch(Dispatchers.IO){
+        searchTrendingJob=viewModelScope.launch(Dispatchers.IO){
             try{
                 repository.getTrendingGamesByName(name).collect { result ->
                     _cachedTrendingGamesState.value = result
@@ -296,7 +337,7 @@ class HomeViewModel @Inject constructor(
     }
 
     private fun searchLast(name:String){
-        viewModelScope.launch(Dispatchers.IO){
+        searchLastJob=viewModelScope.launch(Dispatchers.IO){
             try{
                 repository.getLastGamesByName(name).collect { result ->
                     _cachedLastGamesState.value = result
